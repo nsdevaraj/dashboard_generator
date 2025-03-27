@@ -34,7 +34,7 @@ class DashboardGeneratorUI:
         # Initialize components
         self.api_key_manager = APIKeyManager()
         self.csv_processor = CSVDataProcessor()
-        self.dashboard_generator = DashboardDesignGenerator()
+        self.dashboard_generator = DashboardDesignGenerator(csv_processor=self.csv_processor)
         self.viz_components = VisualizationComponents()
         self.interactive = InteractiveComponents()
         self.responsive = ResponsiveLayouts()
@@ -90,7 +90,7 @@ class DashboardGeneratorUI:
         api_key_section = dbc.Card([
             dbc.CardHeader("OpenAI API Configuration"),
             dbc.CardBody([
-                dbc.FormGroup([
+                dbc.Form([
                     dbc.Label("API Key"),
                     dbc.Input(
                         id="api-key-input",
@@ -142,7 +142,7 @@ class DashboardGeneratorUI:
         dashboard_requirements_section = dbc.Card([
             dbc.CardHeader("Dashboard Requirements"),
             dbc.CardBody([
-                dbc.FormGroup([
+                dbc.Form([
                     dbc.Label("Dashboard Title"),
                     dbc.Input(
                         id="dashboard-title-input",
@@ -150,7 +150,7 @@ class DashboardGeneratorUI:
                         placeholder="Enter a title for your dashboard",
                     ),
                 ]),
-                dbc.FormGroup([
+                dbc.Form([
                     dbc.Label("Dashboard Purpose"),
                     dbc.Textarea(
                         id="dashboard-purpose-input",
@@ -158,7 +158,7 @@ class DashboardGeneratorUI:
                         style={"height": "100px"},
                     ),
                 ]),
-                dbc.FormGroup([
+                dbc.Form([
                     dbc.Label("Key Performance Indicators (KPIs)"),
                     dbc.Textarea(
                         id="dashboard-kpis-input",
@@ -169,7 +169,7 @@ class DashboardGeneratorUI:
                         "Enter each KPI on a new line. Example: Sales Growth, Customer Retention, etc."
                     ),
                 ]),
-                dbc.FormGroup([
+                dbc.Form([
                     dbc.Label("Number of Dashboards"),
                     dbc.Input(
                         id="num-dashboards-input",
@@ -183,7 +183,7 @@ class DashboardGeneratorUI:
                         "How many distinct dashboards would you like to generate?"
                     ),
                 ]),
-                dbc.FormGroup([
+                dbc.Form([
                     dbc.Label("Additional Requirements"),
                     dbc.Textarea(
                         id="additional-requirements-input",
@@ -309,6 +309,12 @@ class DashboardGeneratorUI:
                 # Clean the data
                 self.csv_processor.clean_data()
                 
+                # Analyze the data
+                data_summary = self.csv_processor.analyze_data()
+                
+                if not data_summary:
+                    return html.Div("Failed to analyze data.", className="text-danger"), None
+                
                 # Create a preview table
                 df_preview = self.csv_processor.df.head(5)
                 
@@ -320,9 +326,6 @@ class DashboardGeneratorUI:
                     responsive=True,
                     className="mt-3"
                 )
-                
-                # Get data summary
-                data_summary = self.csv_processor.analyze_data()
                 
                 # Create summary cards
                 summary_cards = []
@@ -424,6 +427,20 @@ class DashboardGeneratorUI:
             }
             
             try:
+                # Ensure data is analyzed before generating designs
+                if not self.csv_processor.data_summary:
+                    logger.info("Analyzing data before generating designs...")
+                    # First clean the data
+                    self.csv_processor.clean_data()
+                    # Then analyze the data
+                    data_summary = self.csv_processor.analyze_data()
+                    
+                    if not data_summary:
+                        return html.Div("Failed to analyze data. Please try uploading the CSV file again.", className="text-danger"), None, {"display": "none"}
+                    
+                    # Store the data summary
+                    self.csv_processor.data_summary = data_summary
+                
                 # Generate dashboard designs
                 dashboard_designs = self.dashboard_generator.generate_dashboard_designs(requirements)
                 
@@ -513,14 +530,36 @@ class DashboardGeneratorUI:
                 filename="dashboard_designs.json"
             )
         
-        # Register dynamic callbacks for preview buttons
-        for i in range(5):  # Support up to 5 dashboards
-            @self.app.callback(
-                Output("dashboard-preview-container", "children"),
-                Input(f"preview-button-{i}", "n_clicks"),
-                prevent_initial_call=True
-            )
-            def preview_dashboard(n_clicks, i=i):
+        # Register single callback for all preview and code generation buttons
+        @self.app.callback(
+            Output("dashboard-preview-container", "children"),
+            [
+                Input(f"preview-button-{i}", "n_clicks") for i in range(5)
+            ] + [
+                Input(f"code-button-{i}", "n_clicks") for i in range(5)
+            ] + [
+                Input("close-preview-button", "n_clicks"),
+                Input("close-code-button", "n_clicks")
+            ],
+            prevent_initial_call=True
+        )
+        def handle_preview_and_code(*args):
+            ctx = dash.callback_context
+            if not ctx.triggered:
+                return None
+            
+            # Get the button ID that triggered the callback
+            button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+            
+            # Handle close buttons
+            if button_id == "close-preview-button" or button_id == "close-code-button":
+                return None
+            
+            # Extract the index from the button ID
+            if button_id.startswith("preview-button-") or button_id.startswith("code-button-"):
+                i = int(button_id.split('-')[-1])
+                is_preview = button_id.startswith("preview-button-")
+                
                 if not hasattr(self.dashboard_generator, 'dashboard_designs') or self.dashboard_generator.dashboard_designs is None:
                     return html.Div("No dashboard designs available.")
                 
@@ -533,156 +572,133 @@ class DashboardGeneratorUI:
                 dashboard_purpose = dashboard.get("purpose", "")
                 visualizations = dashboard.get("visualizations", [])
                 
-                # Create mock visualizations
-                viz_components = []
-                for j, viz in enumerate(visualizations):
-                    viz_title = viz.get("title", f"Visualization {j+1}")
-                    chart_type = viz.get("chart_type", "bar")
-                    data_columns = viz.get("data_columns", [])
+                if is_preview:
+                    # Create mock visualizations for preview
+                    viz_components = []
+                    for j, viz in enumerate(visualizations):
+                        viz_title = viz.get("title", f"Visualization {j+1}")
+                        chart_type = viz.get("chart_type", "bar")
+                        data_columns = viz.get("data_columns", [])
+                        
+                        # Create a sample figure based on chart type
+                        fig = None
+                        if chart_type == "bar":
+                            if len(data_columns) >= 2:
+                                fig = self.viz_components.create_bar_chart(
+                                    self.csv_processor.df, 
+                                    data_columns[0], 
+                                    data_columns[1],
+                                    title=viz_title
+                                )
+                        elif chart_type == "line":
+                            if len(data_columns) >= 2:
+                                fig = self.viz_components.create_line_chart(
+                                    self.csv_processor.df, 
+                                    data_columns[0], 
+                                    data_columns[1],
+                                    title=viz_title
+                                )
+                        elif chart_type == "pie":
+                            if len(data_columns) >= 2:
+                                fig = self.viz_components.create_pie_chart(
+                                    self.csv_processor.df, 
+                                    data_columns[0], 
+                                    data_columns[1],
+                                    title=viz_title
+                                )
+                        elif chart_type == "scatter":
+                            if len(data_columns) >= 2:
+                                fig = self.viz_components.create_scatter_plot(
+                                    self.csv_processor.df, 
+                                    data_columns[0], 
+                                    data_columns[1],
+                                    title=viz_title
+                                )
+                        
+                        if fig:
+                            viz_components.append(
+                                html.Div([
+                                    html.H5(viz_title),
+                                    dcc.Graph(figure=fig),
+                                ], className="visualization-container")
+                            )
                     
-                    # Create a sample figure based on chart type
-                    fig = None
-                    if chart_type == "bar":
-                        if len(data_columns) >= 2:
-                            fig = self.viz_components.create_bar_chart(
-                                self.csv_processor.df, 
-                                data_columns[0], 
-                                data_columns[1],
-                                title=viz_title
-                            )
-                    elif chart_type == "line":
-                        if len(data_columns) >= 2:
-                            fig = self.viz_components.create_line_chart(
-                                self.csv_processor.df, 
-                                data_columns[0], 
-                                data_columns[1],
-                                title=viz_title
-                            )
-                    elif chart_type == "pie":
-                        if len(data_columns) >= 2:
-                            fig = self.viz_components.create_pie_chart(
-                                self.csv_processor.df, 
-                                data_columns[0], 
-                                data_columns[1],
-                                title=viz_title
-                            )
-                    elif chart_type == "scatter":
-                        if len(data_columns) >= 2:
-                            fig = self.viz_components.create_scatter_plot(
-                                self.csv_processor.df, 
-                                data_columns[0], 
-                                data_columns[1],
-                                title=viz_title
-                            )
-                    
-                    if fig:
-                        viz_components.append(
-                            html.Div([
-                                html.H5(viz_title),
-                                dcc.Graph(figure=fig),
-                            ], className="visualization-container")
-                        )
-                
-                # Create preview
-                preview = html.Div([
-                    html.H4(f"Preview: {dashboard_title}"),
-                    html.P(dashboard_purpose, className="mb-4"),
-                    self.responsive.create_grid_layout(viz_components),
-                    dbc.Button(
-                        "Close Preview",
-                        id="close-preview-button",
-                        color="secondary",
-                        className="mt-3",
-                    ),
-                ])
-                
-                return preview
-            
-            @self.app.callback(
-                Output("dashboard-preview-container", "children", allow_duplicate=True),
-                Input("close-preview-button", "n_clicks"),
-                prevent_initial_call=True
-            )
-            def close_preview(n_clicks):
-                return None
-            
-            # Register dynamic callbacks for code generation buttons
-            @self.app.callback(
-                Output("dashboard-preview-container", "children", allow_duplicate=True),
-                Input(f"code-button-{i}", "n_clicks"),
-                prevent_initial_call=True
-            )
-            def generate_code(n_clicks, i=i):
-                if not hasattr(self.dashboard_generator, 'dashboard_designs') or self.dashboard_generator.dashboard_designs is None:
-                    return html.Div("No dashboard designs available.")
-                
-                dashboards = self.dashboard_generator.dashboard_designs.get("dashboards", [])
-                if i >= len(dashboards):
-                    return html.Div("Dashboard not found.")
-                
-                # Generate code
-                code = self.dashboard_generator.generate_layout_code(i, framework='dash')
-                
-                if not code:
-                    return html.Div("Failed to generate code.")
-                
-                # Save code to file
-                code_file_path = os.path.join(os.getcwd(), f"dashboard_{i+1}_code.py")
-                with open(code_file_path, 'w') as f:
-                    f.write(code)
-                
-                # Create code preview
-                code_preview = html.Div([
-                    html.H4(f"Generated Code for Dashboard {i+1}"),
-                    html.Div([
-                        dcc.Textarea(
-                            value=code,
-                            style={
-                                "width": "100%",
-                                "height": "500px",
-                                "fontFamily": "monospace",
-                                "fontSize": "12px",
-                                "whiteSpace": "pre",
-                                "overflowX": "auto",
-                            },
-                            readOnly=True,
+                    # Create preview
+                    return html.Div([
+                        html.H4(f"Preview: {dashboard_title}"),
+                        html.P(dashboard_purpose, className="mb-4"),
+                        self.responsive.create_grid_layout(viz_components),
+                        dbc.Button(
+                            "Close Preview",
+                            id="close-preview-button",
+                            color="secondary",
+                            className="mt-3",
                         ),
-                    ], className="code-container"),
-                    dbc.Button(
-                        "Download Code",
-                        id="download-code-button",
-                        color="primary",
-                        className="mt-3 mr-2",
-                    ),
-                    dbc.Button(
-                        "Close Code",
-                        id="close-code-button",
-                        color="secondary",
-                        className="mt-3",
-                    ),
-                    dcc.Download(id="download-code"),
-                ])
-                
-                return code_preview
+                    ])
+                else:
+                    # Generate code
+                    code = self.dashboard_generator.generate_layout_code(i, framework='dash')
+                    
+                    if not code:
+                        return html.Div("Failed to generate code.")
+                    
+                    # Save code to file
+                    code_file_path = os.path.join(os.getcwd(), f"dashboard_{i+1}_code.py")
+                    with open(code_file_path, 'w') as f:
+                        f.write(code)
+                    
+                    # Create code preview
+                    return html.Div([
+                        html.H4(f"Generated Code for Dashboard {i+1}"),
+                        html.Div([
+                            dcc.Textarea(
+                                value=code,
+                                style={
+                                    "width": "100%",
+                                    "height": "500px",
+                                    "fontFamily": "monospace",
+                                    "fontSize": "12px",
+                                    "whiteSpace": "pre",
+                                    "overflowX": "auto",
+                                },
+                                readOnly=True,
+                            ),
+                        ], className="code-container"),
+                        dbc.Button(
+                            "Download Code",
+                            id="download-code-button",
+                            color="primary",
+                            className="mt-3 mr-2",
+                        ),
+                        dbc.Button(
+                            "Close Code",
+                            id="close-code-button",
+                            color="secondary",
+                            className="mt-3",
+                        ),
+                        dcc.Download(id="download-code"),
+                    ])
             
-            @self.app.callback(
-                Output("download-code", "data"),
-                Input("download-code-button", "n_clicks"),
-                prevent_initial_call=True
-            )
-            def download_code(n_clicks):
-                return dcc.send_file(
-                    os.path.join(os.getcwd(), f"dashboard_{i+1}_code.py"),
-                    filename=f"dashboard_{i+1}_code.py"
-                )
-            
-            @self.app.callback(
-                Output("dashboard-preview-container", "children", allow_duplicate=True),
-                Input("close-code-button", "n_clicks"),
-                prevent_initial_call=True
-            )
-            def close_code(n_clicks):
+            return None
+        
+        # Register callback for code download
+        @self.app.callback(
+            Output("download-code", "data"),
+            Input("download-code-button", "n_clicks"),
+            prevent_initial_call=True
+        )
+        def download_code(n_clicks):
+            if n_clicks is None:
                 return None
+            # Find the most recently generated code file
+            code_files = [f for f in os.listdir(os.getcwd()) if f.startswith("dashboard_") and f.endswith("_code.py")]
+            if not code_files:
+                return None
+            latest_file = max(code_files, key=os.path.getctime)
+            return dcc.send_file(
+                os.path.join(os.getcwd(), latest_file),
+                filename=latest_file
+            )
     
     def run_server(self, debug=False, port=8050, host="0.0.0.0"):
         """

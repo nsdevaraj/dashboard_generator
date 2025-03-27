@@ -22,11 +22,16 @@ class DashboardDesignGenerator:
     Combines data processing with AI-powered design generation.
     """
     
-    def __init__(self):
-        """Initialize the dashboard design generator."""
+    def __init__(self, csv_processor=None):
+        """
+        Initialize the dashboard design generator.
+        
+        Args:
+            csv_processor (CSVDataProcessor, optional): CSV processor instance to use.
+        """
         self.openai_client = OpenAIClient()
         self.prompt_engineering = PromptEngineering()
-        self.csv_processor = CSVDataProcessor()
+        self.csv_processor = csv_processor or CSVDataProcessor()
         self.data_transformer = DataTransformer()
         self.dashboard_designs = None
         

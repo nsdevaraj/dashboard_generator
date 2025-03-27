@@ -1,8 +1,8 @@
 dash==2.9.3
 dash-bootstrap-components==1.4.1
-pandas==2.0.0
+pandas>=2.0.0
 plotly==5.14.1
-openai==1.1.1
+openai>=1.66.3
 python-dotenv==1.0.0
-numpy==1.24.3
-scipy==1.10.1
+numpy>=1.26.0
+scipy>=1.10.1

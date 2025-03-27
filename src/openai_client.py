@@ -1,6 +1,6 @@
 import os
 import logging
-from openai import OpenAI
+from openai import OpenAI, __version__ as openai_version
 from src.api_key_manager import APIKeyManager
 from src.config import config
 
@@ -39,7 +39,20 @@ class OpenAIClient:
             return False
             
         try:
-            self.client = OpenAI(api_key=api_key)
+            # Initialize OpenAI client with only the API key
+            # Remove any proxy settings from environment variables
+            if 'HTTPS_PROXY' in os.environ:
+                del os.environ['HTTPS_PROXY']
+            if 'HTTP_PROXY' in os.environ:
+                del os.environ['HTTP_PROXY']
+                
+            # Create client with minimal configuration
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url="https://api.openai.com/v1",
+                http_client=None  # Use default HTTP client
+            )
+            logger.info(f"Successfully initialized OpenAI client (version: {openai_version})")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI client: {e}")

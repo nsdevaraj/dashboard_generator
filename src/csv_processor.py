@@ -219,96 +219,58 @@ class CSVDataProcessor:
     
     def analyze_data(self) -> Dict[str, Any]:
         """
-        Analyze the loaded CSV data to generate a summary for dashboard design.
+        Analyze the loaded CSV data.
         
         Returns:
-            dict: Data analysis summary.
+            dict: Data analysis results including statistics and insights.
         """
         if self.df is None:
             logger.error("No data loaded. Call load_csv() first.")
-            return {"error": "No data loaded"}
+            return None
             
         try:
-            # Initialize data summary
-            self.data_summary = {
-                "columns": list(self.df.columns),
-                "data_types": {},
-                "statistics": {},
-                "correlations": {},
-                "sample_data": []
+            # Basic statistics
+            analysis = {
+                "row_count": len(self.df),
+                "column_count": len(self.df.columns),
+                "data_types": self.df.dtypes.to_dict(),
+                "missing_values": self.df.isnull().sum().to_dict(),
+                "numeric_columns": self.df.select_dtypes(include=['int64', 'float64']).columns.tolist(),
+                "categorical_columns": self.df.select_dtypes(include=['object', 'category']).columns.tolist(),
+                "date_columns": self.df.select_dtypes(include=['datetime64']).columns.tolist(),
+                "numeric_stats": {}
             }
             
-            # Get data types
-            for col in self.df.columns:
-                dtype = str(self.df[col].dtype)
-                if dtype.startswith('datetime'):
-                    self.data_summary["data_types"][col] = "datetime"
-                elif dtype.startswith('int'):
-                    self.data_summary["data_types"][col] = "int"
-                elif dtype.startswith('float'):
-                    self.data_summary["data_types"][col] = "float"
-                elif dtype == 'bool':
-                    self.data_summary["data_types"][col] = "boolean"
-                elif dtype == 'category':
-                    self.data_summary["data_types"][col] = "category"
-                else:
-                    self.data_summary["data_types"][col] = "object"
-            
-            # Get statistics for numeric columns
-            numeric_cols = self.df.select_dtypes(include=['number']).columns
-            for col in numeric_cols:
-                self.data_summary["statistics"][col] = {
-                    "min": float(self.df[col].min()),
-                    "max": float(self.df[col].max()),
-                    "mean": float(self.df[col].mean()),
-                    "median": float(self.df[col].median()),
-                    "std": float(self.df[col].std()),
-                    "unique_values": int(self.df[col].nunique())
+            # Calculate statistics for numeric columns
+            for col in analysis["numeric_columns"]:
+                analysis["numeric_stats"][col] = {
+                    "mean": self.df[col].mean(),
+                    "median": self.df[col].median(),
+                    "std": self.df[col].std(),
+                    "min": self.df[col].min(),
+                    "max": self.df[col].max(),
+                    "unique_values": self.df[col].nunique()
                 }
             
-            # Get statistics for categorical columns
-            categorical_cols = self.df.select_dtypes(include=['object', 'category']).columns
-            for col in categorical_cols:
+            # Calculate statistics for categorical columns
+            analysis["categorical_stats"] = {}
+            for col in analysis["categorical_columns"]:
                 value_counts = self.df[col].value_counts()
-                top_values = value_counts.head(5).to_dict()
-                self.data_summary["statistics"][col] = {
-                    "unique_values": int(self.df[col].nunique()),
-                    "top_values": {str(k): int(v) for k, v in top_values.items()}
+                analysis["categorical_stats"][col] = {
+                    "unique_values": len(value_counts),
+                    "most_common": value_counts.head(5).to_dict(),
+                    "missing_count": self.df[col].isnull().sum()
                 }
             
-            # Get statistics for datetime columns
-            datetime_cols = self.df.select_dtypes(include=['datetime']).columns
-            for col in datetime_cols:
-                if not self.df[col].empty:
-                    self.data_summary["statistics"][col] = {
-                        "min": str(self.df[col].min()),
-                        "max": str(self.df[col].max()),
-                        "range_days": (self.df[col].max() - self.df[col].min()).days if not pd.isna(self.df[col].max()) and not pd.isna(self.df[col].min()) else None
-                    }
-            
-            # Calculate correlations between numeric columns
-            if len(numeric_cols) > 1:
-                corr_matrix = self.df[numeric_cols].corr()
-                # Convert to dictionary format, keeping only strong correlations
-                for col1 in corr_matrix.columns:
-                    self.data_summary["correlations"][col1] = {}
-                    for col2 in corr_matrix.columns:
-                        if col1 != col2 and abs(corr_matrix.loc[col1, col2]) > 0.5:  # Only strong correlations
-                            self.data_summary["correlations"][col1][col2] = float(corr_matrix.loc[col1, col2])
-            
-            # Get sample data (first few rows)
-            sample_size = min(5, len(self.df))
-            self.data_summary["sample_data"] = self.df.head(sample_size).to_dict(orient='records')
-            
-            # Make the summary JSON serializable
-            self.data_summary = self._make_json_serializable(self.data_summary)
+            # Store the analysis results
+            self.data_summary = analysis
             
             logger.info("Data analysis completed successfully")
-            return self.data_summary
+            return analysis
             
         except Exception as e:
             logger.error(f"Error analyzing data: {e}")
-            return {"error": str(e)}
+            return None
     
     def get_visualization_recommendations(self) -> Dict[str, List[Dict[str, Any]]]:
         """
@@ -328,20 +290,20 @@ class CSVDataProcessor:
                 "exploratory": []
             }
             
-            data_types = self.data_summary["data_types"]
-            statistics = self.data_summary["statistics"]
-            correlations = self.data_summary["correlations"]
+            data_types = self.data_summary.get("data_types", {})
+            numeric_stats = self.data_summary.get("numeric_stats", {})
+            categorical_stats = self.data_summary.get("categorical_stats", {})
             
             # Identify column categories
-            numeric_cols = [col for col, dtype in data_types.items() if dtype in ["int", "float"]]
-            categorical_cols = [col for col, dtype in data_types.items() if dtype in ["object", "category"]]
-            datetime_cols = [col for col, dtype in data_types.items() if dtype == "datetime"]
+            numeric_cols = self.data_summary.get("numeric_columns", [])
+            categorical_cols = self.data_summary.get("categorical_columns", [])
+            date_columns = self.data_summary.get("date_columns", [])
             
             # Primary visualizations (most important for the data)
             
             # Time series visualizations if datetime columns exist
-            if datetime_cols and numeric_cols:
-                for date_col in datetime_cols:
+            if date_columns and numeric_cols:
+                for date_col in date_columns:
                     for num_col in numeric_cols[:3]:  # Limit to first 3 numeric columns
                         recommendations["primary"].append({
                             "type": "line",
@@ -354,7 +316,7 @@ class CSVDataProcessor:
             if categorical_cols and numeric_cols:
                 for cat_col in categorical_cols[:2]:  # Limit to first 2 categorical columns
                     for num_col in numeric_cols[:2]:  # Limit to first 2 numeric columns
-                        if cat_col in statistics and statistics[cat_col].get("unique_values", 0) < 15:
+                        if cat_col in categorical_stats and categorical_stats[cat_col].get("unique_values", 0) < 15:
                             recommendations["primary"].append({
                                 "type": "bar",
                                 "title": f"{num_col} by {cat_col}",
@@ -362,11 +324,14 @@ class CSVDataProcessor:
                                 "rationale": f"Compares {num_col} across different {cat_col} categories."
                             })
             
-            # Scatter plots for correlated numeric columns
+            # Scatter plots for numeric columns with strong correlations
             if len(numeric_cols) >= 2:
+                # Calculate correlations between numeric columns
+                correlations = self.df[numeric_cols].corr()
                 added_scatter = False
-                for col1, corr_dict in correlations.items():
-                    for col2, corr_value in corr_dict.items():
+                for i, col1 in enumerate(numeric_cols):
+                    for col2 in numeric_cols[i+1:]:
+                        corr_value = correlations.loc[col1, col2]
                         if abs(corr_value) > 0.7 and not added_scatter:  # Strong correlation
                             recommendations["primary"].append({
                                 "type": "scatter",
@@ -383,7 +348,7 @@ class CSVDataProcessor:
             
             # Pie charts for categorical data with few unique values
             for cat_col in categorical_cols:
-                if cat_col in statistics and statistics[cat_col].get("unique_values", 0) < 8:
+                if cat_col in categorical_stats and categorical_stats[cat_col].get("unique_values", 0) < 8:
                     recommendations["secondary"].append({
                         "type": "pie",
                         "title": f"Distribution of {cat_col}",
@@ -395,8 +360,9 @@ class CSVDataProcessor:
             if len(categorical_cols) >= 2:
                 for i, cat_col1 in enumerate(categorical_cols[:3]):
                     for cat_col2 in categorical_cols[i+1:min(i+3, len(categorical_cols))]:
-                        if (statistics.get(cat_col1, {}).get("unique_values", 0) < 10 and 
-                            statistics.get(cat_col2, {}).get("unique_values", 0) < 10):
+                        if (cat_col1 in categorical_stats and cat_col2 in categorical_stats and 
+                            categorical_stats[cat_col1].get("unique_values", 0) < 10 and 
+                            categorical_stats[cat_col2].get("unique_values", 0) < 10):
                             recommendations["secondary"].append({
                                 "type": "heatmap",
                                 "title": f"Heatmap: {cat_col1} vs {cat_col2}",
@@ -418,7 +384,7 @@ class CSVDataProcessor:
             # Box plots for numeric columns grouped by categories
             if categorical_cols and numeric_cols:
                 for cat_col in categorical_cols[:2]:
-                    if cat_col in statistics and statistics[cat_col].get("unique_values", 0) < 10:
+                    if cat_col in categorical_stats and categorical_stats[cat_col].get("unique_values", 0) < 10:
                         for num_col in numeric_cols[:3]:
                             recommendations["exploratory"].append({
                                 "type": "box",

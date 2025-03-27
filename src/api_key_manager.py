@@ -46,6 +46,15 @@ class APIKeyManager:
             
         return self.openai_api_key
     
+    def is_api_key_set(self):
+        """
+        Check if a valid OpenAI API key is set.
+        
+        Returns:
+            bool: True if a valid API key is set, False otherwise.
+        """
+        return self.get_openai_api_key() is not None
+    
     def set_openai_api_key(self, api_key):
         """
         Set the OpenAI API key.
@@ -71,6 +80,18 @@ class APIKeyManager:
         self._update_env_file('OPENAI_API_KEY', api_key)
         
         return True
+    
+    def save_api_key(self, api_key):
+        """
+        Alias for set_openai_api_key to maintain compatibility with UI code.
+        
+        Args:
+            api_key (str): The OpenAI API key to set.
+            
+        Returns:
+            bool: True if the key was set successfully, False otherwise.
+        """
+        return self.set_openai_api_key(api_key)
     
     def _validate_openai_key_format(self, api_key):
         """

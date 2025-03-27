@@ -137,73 +137,72 @@ Respond in a structured JSON format that includes all required elements and can 
         for data_category, vis_types in suggested_visualizations.items():
             vis_suggestions.append(f"- For {data_category} data: {', '.join(vis_types)}")
         
-        # Create the prompt
-        prompt = f"""
-I need you to design {num_dashboards} distinct dashboard{'s' if num_dashboards > 1 else ''} for {theme} data visualization.
-
-DATA SUMMARY:
-The CSV data contains the following columns:
-{chr(10).join(columns_info)}
-
-SUGGESTED VISUALIZATIONS:
-Based on the data characteristics, consider these visualization types:
-{chr(10).join(vis_suggestions)}
-
-DESIGN REQUIREMENTS:
-- Theme: {theme}
-- Target Audience: {audience}
-- Number of Dashboards: {num_dashboards}
-- Key Performance Indicators (KPIs): {', '.join(kpis) if kpis else 'Not specified'}
-
-Data Arrangement Considerations:
-- Consider the best way to arrange the data visualizations in each dashboard to tell a clear and compelling story.
-- Ensure the dashboards are visually appealing and easy to understand.
-- Prioritize clarity and conciseness.
-- Consider data filtering and interactive elements where appropriate.
-
-For each dashboard, please provide:
-1. Dashboard Title and Purpose
-2. Layout Description (detailed placement of visualizations)
-3. List of Visualizations with:
-   - Chart type
-   - Data columns used
-   - Rationale for this visualization choice
-4. Interactive Elements and Filters
-5. Color Scheme and Design Considerations
-6. Data Arrangement Strategy
-
-Please format your response as a JSON object with the following structure:
-```json
-{
-  "dashboards": [
-    {
-      "title": "Dashboard Title",
-      "purpose": "Dashboard purpose description",
-      "layout": "Detailed layout description",
-      "visualizations": [
-        {
-          "title": "Visualization Title",
-          "chart_type": "Chart type",
-          "data_columns": ["Column1", "Column2"],
-          "rationale": "Rationale for this visualization"
-        }
-      ],
-      "interactive_elements": [
-        {
-          "type": "Element type",
-          "purpose": "Purpose of this element",
-          "implementation": "How it should be implemented"
-        }
-      ],
-      "color_scheme": "Color scheme description",
-      "design_considerations": "Design considerations",
-      "data_arrangement_strategy": "Data arrangement strategy"
-    }
-  ]
-}
-```
-"""
-        return prompt
+        # Create the prompt sections
+        dashboard_plural = "s" if num_dashboards > 1 else ""
+        kpis_str = ", ".join(kpis) if kpis else "Not specified"
+        
+        # Build the prompt in parts to avoid nested f-string issues
+        prompt_parts = [
+            f"I need you to design {num_dashboards} distinct dashboard{dashboard_plural} for {theme} data visualization.",
+            "\nDATA SUMMARY:",
+            "The CSV data contains the following columns:",
+            "\n".join(columns_info),
+            "\nSUGGESTED VISUALIZATIONS:",
+            "Based on the data characteristics, consider these visualization types:",
+            "\n".join(vis_suggestions),
+            "\nDESIGN REQUIREMENTS:",
+            f"- Theme: {theme}",
+            f"- Target Audience: {audience}",
+            f"- Number of Dashboards: {num_dashboards}",
+            f"- Key Performance Indicators (KPIs): {kpis_str}",
+            "\nData Arrangement Considerations:",
+            "- Consider the best way to arrange the data visualizations in each dashboard to tell a clear and compelling story.",
+            "- Ensure the dashboards are visually appealing and easy to understand.",
+            "- Prioritize clarity and conciseness.",
+            "- Consider data filtering and interactive elements where appropriate.",
+            "\nFor each dashboard, please provide:",
+            "1. Dashboard Title and Purpose",
+            "2. Layout Description (detailed placement of visualizations)",
+            "3. List of Visualizations with:",
+            "   - Chart type",
+            "   - Data columns used",
+            "   - Rationale for this visualization choice",
+            "4. Interactive Elements and Filters",
+            "5. Color Scheme and Design Considerations",
+            "6. Data Arrangement Strategy",
+            "\nPlease format your response as a JSON object with the following structure:",
+            "```json",
+            "{",
+            "  \"dashboards\": [",
+            "    {",
+            "      \"title\": \"Dashboard Title\",",
+            "      \"purpose\": \"Dashboard purpose description\",",
+            "      \"layout\": \"Detailed layout description\",",
+            "      \"visualizations\": [",
+            "        {",
+            "          \"title\": \"Visualization Title\",",
+            "          \"chart_type\": \"Chart type\",",
+            "          \"data_columns\": [\"Column1\", \"Column2\"],",
+            "          \"rationale\": \"Rationale for this visualization\"",
+            "        }",
+            "      ],",
+            "      \"interactive_elements\": [",
+            "        {",
+            "          \"type\": \"Element type\",",
+            "          \"purpose\": \"Purpose of this element\",",
+            "          \"implementation\": \"How it should be implemented\"",
+            "        }",
+            "      ],",
+            "      \"color_scheme\": \"Color scheme description\",",
+            "      \"design_considerations\": \"Design considerations\",",
+            "      \"data_arrangement_strategy\": \"Data arrangement strategy\"",
+            "    }",
+            "  ]",
+            "}",
+            "```"
+        ]
+        
+        return "\n".join(prompt_parts)
     
     def _suggest_visualizations(self, data_types, correlations):
         """
@@ -281,17 +280,73 @@ Please format your response as a JSON object with the following structure:
             # Parse the JSON content
             dashboard_design = json.loads(json_content)
             
-            # Validate the structure
-            if "dashboards" not in dashboard_design:
-                logger.warning("Response missing 'dashboards' key, attempting to fix structure")
-                # Try to fix the structure if it's a single dashboard
-                if "title" in dashboard_design:
-                    dashboard_design = {"dashboards": [dashboard_design]}
-                else:
-                    logger.error("Invalid dashboard design structure")
-                    return None
+            # Initialize the final structure
+            final_design = {"dashboards": []}
             
-            return dashboard_design
+            # Handle different response structures
+            if isinstance(dashboard_design, dict):
+                if "dashboards" in dashboard_design:
+                    # Already in correct format
+                    final_design = dashboard_design
+                elif "title" in dashboard_design:
+                    # Single dashboard object
+                    final_design["dashboards"].append(dashboard_design)
+                else:
+                    # Try to find dashboard-like objects in the dictionary
+                    for key, value in dashboard_design.items():
+                        if isinstance(value, dict) and "title" in value:
+                            final_design["dashboards"].append(value)
+            elif isinstance(dashboard_design, list):
+                # List of dashboard objects
+                for item in dashboard_design:
+                    if isinstance(item, dict) and "title" in item:
+                        final_design["dashboards"].append(item)
+            
+            # If no dashboards were found, try to create one from the available data
+            if not final_design["dashboards"]:
+                logger.warning("No valid dashboard structure found, attempting to create one")
+                dashboard = {
+                    "title": "Data Analysis Dashboard",
+                    "purpose": "Visualize and analyze the data",
+                    "layout": "Grid layout with multiple visualizations",
+                    "visualizations": []
+                }
+                
+                # Try to extract visualizations from the response
+                if isinstance(dashboard_design, dict):
+                    for key, value in dashboard_design.items():
+                        if isinstance(value, dict) and "chart_type" in value:
+                            dashboard["visualizations"].append(value)
+                
+                final_design["dashboards"].append(dashboard)
+            
+            # Validate and fix each dashboard
+            for dashboard in final_design["dashboards"]:
+                # Ensure required fields exist with defaults
+                dashboard.setdefault("title", "Untitled Dashboard")
+                dashboard.setdefault("purpose", "Data visualization and analysis")
+                dashboard.setdefault("layout", "Grid layout")
+                dashboard.setdefault("visualizations", [])
+                dashboard.setdefault("interactive_elements", [])
+                dashboard.setdefault("color_scheme", "Default color scheme")
+                dashboard.setdefault("design_considerations", "Standard design considerations")
+                dashboard.setdefault("data_arrangement_strategy", "Standard data arrangement")
+                
+                # Ensure visualizations is a list
+                if not isinstance(dashboard["visualizations"], list):
+                    dashboard["visualizations"] = []
+                
+                # Fix each visualization
+                for viz in dashboard["visualizations"]:
+                    if not isinstance(viz, dict):
+                        continue
+                        
+                    viz.setdefault("title", "Untitled Visualization")
+                    viz.setdefault("chart_type", "bar")
+                    viz.setdefault("data_columns", [])
+                    viz.setdefault("rationale", "Standard visualization")
+            
+            return final_design
             
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing JSON from response: {e}")

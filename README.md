@@ -40,7 +40,7 @@ The Dashboard Design Generator is an AI-powered application that helps you creat
 
 2. Create a virtual environment:
    ```
-   python -m venv venv
+   python3 -m venv venv
    ```
 
 3. Activate the virtual environment:
