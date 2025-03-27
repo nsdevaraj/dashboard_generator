@@ -534,9 +534,9 @@ class DashboardGeneratorUI:
         @self.app.callback(
             Output("dashboard-preview-container", "children"),
             [
-                Input(f"preview-button-{i}", "n_clicks") for i in range(5)
+                Input(f"preview-button-{i}", "n_clicks") for i in range(10)  # Increased range to handle more dashboards
             ] + [
-                Input(f"code-button-{i}", "n_clicks") for i in range(5)
+                Input(f"code-button-{i}", "n_clicks") for i in range(10)  # Increased range to handle more dashboards
             ] + [
                 Input("close-preview-button", "n_clicks"),
                 Input("close-code-button", "n_clicks")
